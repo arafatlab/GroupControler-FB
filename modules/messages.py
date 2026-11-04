@@ -1,11 +1,12 @@
-
 from collections import deque
 
 from fbchat_v2 import SendAPI
 
 from modules.ai_engine import AIEngine
 from modules.memory import MemoryStore
-from config import DRY_RUN, GROUP_COMMAND, GROUP_COMMAND
+from modules.ff_checker import GamesKinbo, GamesKinboError, format_player
+
+from config import DRY_RUN, GROUP_COMMAND
 
 
 class AIMessageHandler:
@@ -17,6 +18,7 @@ class AIMessageHandler:
         self.api = SendAPI()
         self.ai = AIEngine()
         self.memory = MemoryStore()
+        self.ff_checker = GamesKinbo()
 
         self.dry_run = DRY_RUN
         self.prefix = GROUP_COMMAND.strip()
@@ -42,7 +44,91 @@ class AIMessageHandler:
 
         return False
 
+    async def send_group_reply(self, thread_id, message_id, reply):
+
+        if self.dry_run:
+            print("\n[DRY RUN] Group reply:")
+            print(reply)
+            print("[DRY RUN] Message not sent.")
+            return
+
+        if not message_id:
+            print("[-] Original message ID missing.")
+            return
+
+        result = await self.api.send(
+            dataFB=self.session,
+            contentSend=reply,
+            threadID=thread_id,
+            typeChat=None,
+            replyMessage=True,
+            messageID=str(message_id),
+        )
+
+        if not isinstance(result, dict) or not result.get("success"):
+            print("[-] Facebook did not confirm the message.")
+            return
+
+        print("[+] Group reply sent successfully.")
+
+    async def handle_ff(self, uid, thread_id, message_id):
+
+        print("\n[FREE FIRE CHECKER]")
+        print("UID:", uid or "Missing")
+
+        if not uid:
+            await self.send_group_reply(
+                thread_id,
+                message_id,
+                "Usage: /ff <Free Fire UID>\nExample: /ff 123456789",
+            )
+            return
+
+        try:
+            player = await self.ff_checker.check_player(uid)
+            reply = format_player(player)
+
+            print(reply)
+
+            await self.send_group_reply(
+                thread_id,
+                message_id,
+                reply,
+            )
+
+        except ValueError as error:
+            print("[-] Invalid UID:", error)
+
+            await self.send_group_reply(
+                thread_id,
+                message_id,
+                f"⚠️ Invalid UID: {error}",
+            )
+
+        except GamesKinboError as error:
+            print("[-] GamesKinbo error:", error)
+
+            await self.send_group_reply(
+                thread_id,
+                message_id,
+                "⚠️ Free Fire checker is temporarily unavailable. Please try again later.",
+            )
+
+        except Exception as error:
+            print(
+                "[-] Free Fire error:",
+                type(error).__name__,
+                str(error),
+            )
+
+            await self.send_group_reply(
+                thread_id,
+                message_id,
+                "⚠️ An unexpected error occurred while checking the UID.",
+            )
+
     def get_user_text(self, message):
+
         if not self.prefix:
             return None
 
@@ -58,8 +144,9 @@ class AIMessageHandler:
 
         message_type = message.get("type")
 
-        # Group: only /noun command
+        # Group: only configured AI command
         if message_type == "thread":
+
             parts = body.split(maxsplit=1)
 
             if len(parts) != 2:
@@ -77,6 +164,7 @@ class AIMessageHandler:
         return None
 
     async def handle(self, message):
+
         if not isinstance(message, dict):
             return
 
@@ -91,15 +179,36 @@ class AIMessageHandler:
         if self.is_duplicate(message_id):
             return
 
+        thread_id = message.get("replyToID")
+        message_type = message.get("type")
+        body = message.get("body")
+
+        if not thread_id:
+            return
+
+        # Free Fire checker: group only
+        if message_type == "thread" and isinstance(body, str):
+
+            parts = body.strip().split()
+
+            if parts and parts[0].casefold() == "/ff":
+
+                if len(parts) == 2:
+                    uid = parts[1]
+                else:
+                    uid = None
+
+                await self.handle_ff(
+                    uid,
+                    thread_id,
+                    message_id,
+                )
+                return
+
+        # Existing Anu AI handler
         user_text = self.get_user_text(message)
 
         if not user_text:
-            return
-
-        thread_id = message.get("replyToID")
-        message_type = message.get("type")
-
-        if not thread_id:
             return
 
         print("\n[ANU AI]")
@@ -113,7 +222,7 @@ class AIMessageHandler:
         try:
             reply = await self.ai.generate_reply(
                 user_text=user_text,
-                history=history
+                history=history,
             )
 
             if not reply:
@@ -126,7 +235,6 @@ class AIMessageHandler:
                 print("[DRY RUN] Message not sent.")
                 return
 
-            # Native Messenger reply for group messages
             if message_type == "thread":
 
                 if not message_id:
@@ -142,7 +250,6 @@ class AIMessageHandler:
                     messageID=str(message_id),
                 )
 
-            # Normal send for personal chat
             else:
 
                 result = await self.api.send(
@@ -161,16 +268,18 @@ class AIMessageHandler:
             self.memory.add_exchange(
                 sender_id,
                 user_text,
-                reply
+                reply,
             )
 
             print("[+] User memory updated.")
 
         except Exception as error:
             print(
-                f"[-] AI message error: "
-                f"{type(error).__name__}: {error}"
+                "[-] AI message error:",
+                type(error).__name__,
+                str(error),
             )
 
     async def close(self):
         await self.ai.close()
+        await self.ff_checker.close()
