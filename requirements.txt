@@ -1,0 +1,2 @@
+fbchat-v2==2.3.4
+httpx

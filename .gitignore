@@ -1,0 +1,28 @@
+# Authentication
+cookies.json
+*.cookie
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.venv/
+
+# Logs and temporary data
+logs/*
+!logs/.gitkeep
+
+data/*
+!data/.gitkeep
+
+# Local backups
+*.bak
+/config.py
+
+# Private configuration and credentials
+/config.py
+cookies.json
+*.cookie
+.env
