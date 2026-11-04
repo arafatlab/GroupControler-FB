@@ -26,3 +26,4 @@ data/*
 cookies.json
 *.cookie
 .env
+.DS_Store
