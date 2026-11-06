@@ -1,4 +1,5 @@
 import asyncio
+import sys
 
 from config import APP_NAME, APP_VERSION
 from core.session import create_session
@@ -12,6 +13,7 @@ async def main():
     print("=" * 44)
 
     messenger = None
+    exit_code = 0
 
     try:
         print("\n[1] Initializing session...")
@@ -20,7 +22,8 @@ async def main():
 
         if not session:
             print("[-] Session initialization failed.")
-            return
+            exit_code = 1
+            return exit_code
 
         print("[+] Facebook session initialized.")
 
@@ -29,30 +32,36 @@ async def main():
         messenger = Messenger(session)
 
         print("[+] Messenger initialized.")
-
         print("\n[3] Starting listener...")
         print("[*] Press CTRL+C to stop.\n")
 
         await messenger.start()
 
-    except FileNotFoundError as error:
-        print(f"[-] {error}")
-
     except KeyboardInterrupt:
-        print("\n[!] Stopping application...")
+        print("\n[!] Stopping application.")
 
     except Exception as error:
         print(f"[-] {type(error).__name__}: {error}")
+        exit_code = 1
 
     finally:
         if messenger:
-            await messenger.stop()
+            try:
+                await messenger.stop()
+            except Exception as error:
+                print(f"[-] Cleanup error: {type(error).__name__}: {error}")
+                exit_code = 1
 
         print("\n[*] Application closed.")
+
+    return exit_code
 
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        code = asyncio.run(main())
     except KeyboardInterrupt:
         print("\n[!] Exit.")
+        code = 0
+
+    sys.exit(code)
