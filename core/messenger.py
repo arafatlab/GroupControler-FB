@@ -4,7 +4,7 @@ from core.connection import MessengerConnection
 from modules.messages import AIMessageHandler
 from utils.formatter import format_message
 from watchdog.telegram import send_telegram
-from watchdog.facebook import send_facebook
+from watchdog.facebook import send_facebook, send_group_welcome, send_group_goodbye, send_group_removal_question
 
 
 class Messenger:
@@ -21,10 +21,15 @@ class Messenger:
         reason = status.get("reason", "")
         attempt = status.get("attempt", 0)
 
-        print(f"[CONNECTION] {state} | reason={reason} | attempt={attempt}")
+        print(
+            f"[CONNECTION] {state} | "
+            f"reason={reason} | attempt={attempt}"
+        )
 
         messages = {
-            "connected": "✅ Facebook Messenger connected successfully.",
+            "connected": (
+                "✅ Facebook Messenger connected successfully."
+            ),
             "reconnecting": (
                 f"⚠️ Facebook connection lost.\n"
                 f"Reason: {reason or 'unknown'}\n"
@@ -50,6 +55,47 @@ class Messenger:
     async def _handle_group_event(self, event):
         event_type = event.get("type")
         group_id = event.get("group_id", "unknown")
+
+        # A new member was added to a group.
+        if event_type == "member_added":
+            task = asyncio.create_task(
+                send_group_welcome(
+                    group_id=str(group_id),
+                    member_id=str(event.get("member_id", "")),
+                    session=self.session,
+                )
+            )
+
+            self._notification_tasks.add(task)
+            task.add_done_callback(self._notification_tasks.discard)
+            return
+
+        if event_type == "member_left":
+            task = asyncio.create_task(
+                send_group_goodbye(
+                    group_id=str(group_id),
+                    member_id=str(event.get("member_id", "")),
+                    session=self.session,
+                )
+            )
+
+            self._notification_tasks.add(task)
+            task.add_done_callback(self._notification_tasks.discard)
+            return
+
+        if event_type == "member_removed":
+            task = asyncio.create_task(
+                send_group_removal_question(
+                    group_id=str(group_id),
+                    member_id=str(event.get("member_id", "")),
+                    session=self.session,
+                )
+            )
+            self._notification_tasks.add(task)
+            task.add_done_callback(self._notification_tasks.discard)
+            return
+
+        # Existing bot membership notifications remain unchanged.
         actor_id = event.get("actor_id", "unknown")
 
         if event_type == "added":
@@ -77,6 +123,7 @@ class Messenger:
         task = asyncio.create_task(
             send_facebook(message, session=self.session)
         )
+
         self._notification_tasks.add(task)
         task.add_done_callback(self._notification_tasks.discard)
 
@@ -99,14 +146,23 @@ class Messenger:
                     await self.ai_handler.handle(message)
 
                 while True:
-                    event = await self.connection.get_state_event(timeout=0.01)
+                    event = await self.connection.get_state_event(
+                        timeout=0.01
+                    )
+
                     if event is None:
                         break
+
                     await self._handle_connection_event(event)
+
                 while True:
-                    group_event = await self.connection.get_group_event(timeout=0.01)
+                    group_event = await self.connection.get_group_event(
+                        timeout=0.01
+                    )
+
                     if group_event is None:
                         break
+
                     await self._handle_group_event(group_event)
 
             await connection_task
@@ -116,9 +172,10 @@ class Messenger:
 
             if not connection_task.done():
                 connection_task.cancel()
+
                 await asyncio.gather(
                     connection_task,
-                    return_exceptions=True
+                    return_exceptions=True,
                 )
 
             await self.connection.disconnect()
@@ -134,5 +191,5 @@ class Messenger:
         if self._notification_tasks:
             await asyncio.gather(
                 *self._notification_tasks,
-                return_exceptions=True
+                return_exceptions=True,
             )

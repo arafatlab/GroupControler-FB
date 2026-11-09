@@ -183,6 +183,17 @@ class AIMessageHandler:
         message_type = message.get("type")
         body = message.get("body")
 
+        is_swipe_reply = message.get("is_swipe_reply") is True
+
+        # Swipe replies are accepted only when targeting the bot's own message.
+        if is_swipe_reply:
+            if (
+                message_type != "thread"
+                or str(message.get("replied_to_user_id") or "") != self.sender_id
+            ):
+                print("[SWIPE REPLY IGNORED] Target is not the bot.")
+                return
+
         if not thread_id:
             return
 
@@ -206,7 +217,11 @@ class AIMessageHandler:
                 return
 
         # Existing Anu AI handler
-        user_text = self.get_user_text(message)
+        user_text = (
+            body.strip()
+            if is_swipe_reply and isinstance(body, str)
+            else self.get_user_text(message)
+        )
 
         if not user_text:
             return
