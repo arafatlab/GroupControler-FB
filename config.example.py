@@ -13,6 +13,7 @@ LOG_DIR = PROJECT_DIR / "logs"
 DATA_DIR = PROJECT_DIR / "data"
 
 DRY_RUN = True
+BOT_NICKNAME = "🌸 HINATA~"
 
 # Groq AI Configuration
 GROQ_API_KEY = "YOUR_GROQ_API_KEY"

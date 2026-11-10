@@ -5,6 +5,7 @@ from fbchat_v2 import SendAPI
 from modules.ai_engine import AIEngine
 from modules.memory import MemoryStore
 from modules.ff_checker import GamesKinbo, GamesKinboError, format_player
+from modules.groups import GroupCommandHandler
 
 from config import DRY_RUN, GROUP_COMMAND
 
@@ -19,6 +20,7 @@ class AIMessageHandler:
         self.ai = AIEngine()
         self.memory = MemoryStore()
         self.ff_checker = GamesKinbo()
+        self.group_handler = GroupCommandHandler(session)
 
         self.dry_run = DRY_RUN
         self.prefix = GROUP_COMMAND.strip()
@@ -215,6 +217,10 @@ class AIMessageHandler:
                     message_id,
                 )
                 return
+
+        # Group commands only; personal Messenger remains unchanged.
+        if message_type == "thread" and await self.group_handler.handle(message):
+            return
 
         # Existing Anu AI handler
         user_text = (
